@@ -1,0 +1,21 @@
+{{- if .Values.metrics.ServiceMonitor -}}
+{{- $fullName := include "foreman.fullname" . -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+    {{- with .Values.metrics.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  endpoints:
+    - interval: 15s
+      port: http
+      scheme: http
+      path: /metrics
+  selector:
+    matchLabels:
+      {{- include "foreman.foreman.selectorLabels" . | nindent 6 }}
+{{- end }}

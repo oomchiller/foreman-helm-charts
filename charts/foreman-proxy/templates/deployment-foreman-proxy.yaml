@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "foreman-proxy.fullname" . }}
+  labels:
+    {{- include "foreman-proxy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "foreman-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "foreman-proxy.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/foreman-config: {{ include (print $.Template.BasePath "/configmap-foreman-proxy-config.yaml") . | sha256sum }}
+        checksum/plugins-config: {{ include (print $.Template.BasePath "/configmap-foreman-proxy-plugins.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.PodSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.extraEnv -}}
+          env:
+            {{- range $name, $value := .Values.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: {{ .Values.config.scheme }}
+              containerPort: 8000
+              protocol: TCP
+          {{- if  eq .Values.config.scheme "http" }}
+          livenessProbe:
+            initialDelaySeconds: 5
+            tcpSocket:
+              port: 8000
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /version
+              port: 8000
+              scheme: {{ upper .Values.config.scheme }}
+            initialDelaySeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: foreman-proxy-ssh-config
+              readOnly: true
+              mountPath: /etc/ssh/ssh_config.d/DisableKnownHostsFile.conf
+              subPath: DisableKnownHostsFile.conf
+            - name: foreman-proxy-config
+              mountPath: /etc/foreman-proxy/settings.yml
+              subPath: settings.yml
+              readOnly: true
+            - name: foreman-proxy-plugins
+              mountPath: /etc/foreman-proxy/settings.d
+              readOnly: true
+            - name: foreman-proxy-ssl-certs
+              mountPath: /etc/foreman-proxy/ssl
+              readOnly: true
+            - name: foreman-proxy-cache
+              mountPath: /tmp
+            {{- if .Values.config.plugins.shellhooks.enabled }}
+            - name: shellhooks-volume
+              mountPath: /var/lib/foreman-proxy/shellhooks
+            {{- end }}
+            {{- if .Values.config.plugins.ansible.enabled }}
+            - name: ansible-roles-volume
+              mountPath: /etc/ansible
+            {{- end }}
+            {{- if .Values.config.plugins.remote_execution_ssh.enabled }}
+            - name: foreman-proxy-ssh
+              mountPath: "/usr/share/foreman-proxy/.ssh"
+            {{- end }}
+        {{- if .Values.config.plugins.shellhooks.enabled }}
+        - name: shellhooks-git-sync
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          env:
+          - name: GITSYNC_REPO
+            value: {{ .Values.config.plugins.shellhooks.gitsync.scripts_repo }}
+          - name: GITSYNC_REF
+            value: {{ .Values.config.plugins.shellhooks.gitsync.scripts_repo_ref }}
+          - name: GITSYNC_ROOT
+            value: /var/lib/foreman-proxy/shellhooks
+          - name: GITSYNC_LINK
+            value: scripts
+          image: {{ .Values.config.plugins.shellhooks.gitsync.image }}
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+          - mountPath: /var/lib/foreman-proxy/shellhooks
+            name: shellhooks-volume
+          - name: {{ .Values.secrets.ca_cert }}
+            readOnly: true
+            mountPath: /etc/ssl/certs/ca-certificates.crt
+            subPath: ca-certificates.crt
+        {{- end }}
+        {{- if .Values.config.plugins.ansible.enabled }}
+        - name: ansible-git-sync
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          env:
+          - name: GITSYNC_REPO
+            value: {{ .Values.config.plugins.ansible.gitsync.roles_repo }}
+          - name: GITSYNC_REF
+            value: {{ .Values.config.plugins.ansible.gitsync.roles_repo_ref }}
+          - name: GITSYNC_ROOT
+            value: /etc/ansible
+          - name: GITSYNC_LINK
+            value: /etc/ansible/roles
+          - name: GITSYNC_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.config.plugins.ansible.gitsync.ansible_git_sync_secret }}
+                key: username
+          - name: GITSYNC_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.config.plugins.ansible.gitsync.ansible_git_sync_secret }}
+                key: password
+          image: {{ .Values.config.plugins.ansible.gitsync.image }}
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+          - name: ansible-roles-volume
+            mountPath: /etc/ansible
+          - name: {{ .Values.secrets.ca_cert }}
+            readOnly: true
+            mountPath: /etc/ssl/certs/ca-certificates.crt
+            subPath: ca-certificates.crt
+        {{- end }}
+      volumes:
+        - name: foreman-proxy-ssh-config
+          configMap:
+            name: {{ template "foreman-proxy.fullname" . }}-ssh-config
+        - name: foreman-proxy-config
+          configMap:
+            name: {{ template "foreman-proxy.fullname" . }}-config
+        - name: foreman-proxy-plugins
+          configMap:
+            name: {{ template "foreman-proxy.fullname" . }}-plugins
+        - name: foreman-proxy-ssl-certs
+          secret:
+            secretName: {{ .Values.secrets.ssl_certs }}
+        - name: foreman-proxy-ocs-ca-cert
+          secret:
+            secretName: {{ .Values.secrets.ca_cert }}
+        {{- if .Values.config.plugins.shellhooks.enabled }}
+        - name: shellhooks-volume
+          emptyDir:
+            sizeLimit: {{ .Values.config.plugins.shellhooks.volume_size }}
+        {{- end }}
+        {{- if .Values.config.plugins.ansible.enabled }}
+        - name: ansible-roles-volume
+          emptyDir:
+            sizeLimit: {{ .Values.config.plugins.ansible.gitsync.volume_size }}
+        {{- end }}
+        {{- if .Values.config.plugins.remote_execution_ssh.enabled }}
+        - name: {{ .Values.secrets.ssh_auth }}
+          secret:
+            secretName: {{ .Values.secrets.ssh_auth }}
+            defaultMode: 384
+        {{- end }}
+        - name: foreman-proxy-cache
+          emptyDir:
+            sizeLimit: {{ .Values.config.cache.size }}

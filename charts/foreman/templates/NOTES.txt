@@ -1,0 +1,2 @@
+This chart deploys Foreman only.
+External PostgreSQL, Redis, and any required cache services must already exist.

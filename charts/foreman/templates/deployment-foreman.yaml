@@ -1,0 +1,248 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "foreman.fullname" . }}
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "foreman.foreman.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "foreman.foreman.labels" . | nindent 8 }}
+      annotations:
+        checksum/foreman-config: {{ include (print $.Template.BasePath "/configmap-foreman-config.yaml") . | sha256sum }}
+        checksum/plugins-config: {{ include (print $.Template.BasePath "/configmap-foreman-plugins.yaml") . | sha256sum }}
+        kubectl.kubernetes.io/default-exec-container: foreman
+    spec:
+      securityContext:
+        {{- toYaml .Values.PodSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "foreman.fullname" . }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - foreman
+                topologyKey: kubernetes.io/hostname
+                namespaceSelector: {}
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values:
+                        - dynflow
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: {{ include "foreman.fullname" . }}-dynflow-restarter-orchestrator
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          image: {{ .Values.curl_image }}
+          volumeMounts:
+            - name: foreman-cache
+              mountPath: /usr/share/foreman/tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              curl -v --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+              -H "Content-Type: application/strategic-merge-patch+json"
+              --location --request PATCH
+              "https://kubernetes.default.svc/apis/apps/v1/namespaces/{{ .Release.Namespace }}/deployments/{{ include "foreman.fullname" . }}-dynflow-sidekiq-orchestrator?fieldManager=kubectl-rollout&pretty=true"
+              --data-raw '{
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "annotations": {
+                        "kubectl.kubernetes.io/restartedAt": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+                      }
+                    }
+                  }
+                }
+              }'
+        - name: {{ include "foreman.fullname" . }}-dynflow-restarter-worker
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          image: {{ .Values.curl_image }}
+          volumeMounts:
+            - name: foreman-cache
+              mountPath: /usr/share/foreman/tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              curl -v --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+              -H "Content-Type: application/strategic-merge-patch+json"
+              --location --request PATCH
+              "https://kubernetes.default.svc/apis/apps/v1/namespaces/{{ .Release.Namespace }}/deployments/{{ include "foreman.fullname" . }}-dynflow-sidekiq-worker?fieldManager=kubectl-rollout&pretty=true"
+              --data-raw '{
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "annotations": {
+                        "kubectl.kubernetes.io/restartedAt": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+                      }
+                    }
+                  }
+                }
+              }'
+        - name: {{ .Chart.Name }}-db-migrate
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          args:
+            - "bundle"
+            - "exec"
+            - "bin/rake"
+            - "db:migrate"
+          image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- range $name, $value := .Values.foreman.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: "production"
+            - name: DB_PASSWORD
+              {{- if .Values.db.existingSecretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.db.existingSecretName }}
+                  {{- if .Values.db.existingSecretKey }}
+                  key: {{ .Values.db.existingSecretKey }}
+                  {{- else }}
+                  key: password
+                  {{- end }}
+              {{- else }}
+              value: {{ .Values.db.password }}
+              {{- end }}
+          resources:
+            {{- toYaml .Values.foreman.resources | nindent 12 }}
+          volumeMounts:
+            - name: foreman-encryption-key
+              mountPath: /etc/foreman/encryption_key.rb
+              subPath: {{ .Values.encryptionKey.secretKey }}
+            - name: foreman-config
+              mountPath: /etc/foreman/settings.yaml
+              subPath: settings.yaml
+            - name: foreman-config
+              mountPath: /etc/foreman/database.yml
+              subPath: database.yaml
+            - name: foreman-config
+              mountPath: /etc/foreman/logging.yaml
+              subPath: logging.yaml
+            - name: foreman-plugins
+              mountPath: /etc/foreman/plugins
+            - name: foreman-cache
+              mountPath: /usr/share/foreman/tmp
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          args:
+            - "bundle"
+            - "exec"
+            - "bin/rails"
+            - "server"
+            - "-b"
+            - "0.0.0.0"
+          image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- range $name, $value := .Values.foreman.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: RAILS_SERVE_STATIC_FILES
+              value: "true"
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: "production"
+            - name: DB_PASSWORD
+              {{- if .Values.db.existingSecretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.db.existingSecretName }}
+                  {{- if .Values.db.existingSecretKey }}
+                  key: {{ .Values.db.existingSecretKey }}
+                  {{- else }}
+                  key: password
+                  {{- end }}
+              {{- else }}
+              value: {{ .Values.db.password }}
+              {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/ping
+              port: http
+            initialDelaySeconds: {{ .Values.foreman.startup_delay }}
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            initialDelaySeconds: {{ .Values.foreman.startup_delay }}
+            tcpSocket:
+              port: 3000
+          resources:
+            {{- toYaml .Values.foreman.resources | nindent 12 }}
+          volumeMounts:
+            - name: foreman-encryption-key
+              mountPath: /etc/foreman/encryption_key.rb
+              subPath: {{ .Values.encryptionKey.secretKey }}
+              readOnly: true
+            - name: foreman-config
+              mountPath: /etc/foreman/settings.yaml
+              subPath: settings.yaml
+              readOnly: true
+            - name: foreman-config
+              mountPath: /etc/foreman/database.yml
+              subPath: database.yaml
+              readOnly: true
+            - name: foreman-config
+              mountPath: /etc/foreman/logging.yaml
+              subPath: logging.yaml
+              readOnly: true
+            - name: foreman-plugins
+              mountPath: /etc/foreman/plugins
+              readOnly: true
+            - name: foreman-cache
+              mountPath: /usr/share/foreman/tmp
+            - name: {{ template "foreman.fullname" . }}-ssl-certs
+              mountPath: /usr/share/foreman/ssl
+              readOnly: true
+      volumes:
+        - name: foreman-encryption-key
+          secret:
+            secretName: {{ default (printf "%s-encryption-key" (include "foreman.fullname" .)) .Values.encryptionKey.existingSecretName }}
+        - name: foreman-config
+          configMap:
+            name: {{ template "foreman.fullname" . }}-config
+        - name: foreman-plugins
+          configMap:
+            name: {{ template "foreman.fullname" . }}-plugins
+        - name: foreman-cache
+          emptyDir:
+            sizeLimit: {{ .Values.foreman.cache.size }}
+        - name: {{ template "foreman.fullname" . }}-ssl-certs
+          secret:
+            secretName: {{ .Values.sslSecret }}

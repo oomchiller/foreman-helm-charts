@@ -1,0 +1,130 @@
+{{- if .Values.dynflow.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "foreman.fullname" . }}-dynflow-sidekiq-worker
+  labels:
+    {{- include "foreman.dynflow.worker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.dynflow.worker.amount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "foreman.dynflow.worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "foreman.dynflow.worker.labels" . | nindent 8 }}
+      annotations:
+        checksum/foreman-config: {{ include (print $.Template.BasePath "/configmap-foreman-config.yaml") . | sha256sum }}
+        checksum/dynflow-config: {{ include (print $.Template.BasePath "/configmap-foreman-dynflow-sidekiq-worker.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.PodSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}-dynflow-worker
+          securityContext:
+            {{- toYaml .Values.SecurityContext | nindent 12 }}
+          args:
+            - bundle
+            - exec
+            - sidekiq
+            - '-v'
+            - '-e'
+            - $(RAILS_ENV)
+            - '-r'
+            - ./extras/dynflow-sidekiq.rb
+            - '-C'
+            - /etc/foreman/dynflow/worker.yml
+          image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- range $name, $value := .Values.dynflow.worker.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: "production"
+            - name: DYNFLOW_REDIS_URL
+              value: {{ .Values.dynflow.redis_url }}
+            - name: REDIS_PROVIDER
+              value: DYNFLOW_REDIS_URL
+            - name: DB_PASSWORD
+              {{- if .Values.db.existingSecretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.db.existingSecretName }}
+                  {{- if .Values.db.existingSecretKey }}
+                  key: {{ .Values.db.existingSecretKey }}
+                  {{- else }}
+                  key: password
+                  {{- end }}
+              {{- else }}
+              value: {{ .Values.db.password }}
+              {{- end }}
+            - name: STARTUP_DELAY
+              value: {{ add .Values.foreman.startup_delay 25 | quote }}
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: 2
+            requests:
+              memory: 500Mi
+              cpu: 500m
+          volumeMounts:
+            - name: foreman-encryption-key
+              mountPath: /etc/foreman/encryption_key.rb
+              subPath: {{ .Values.encryptionKey.secretKey }}
+            - name: foreman-config
+              mountPath: /etc/foreman/database.yml
+              subPath: database.yaml
+              # readOnly: true
+            - name: foreman-dynflow-sidekiq-worker
+              mountPath: /etc/foreman/worker.yaml
+              subPath: worker.yaml
+              # readOnly: true
+            - name: foreman-cache
+              mountPath: /usr/share/foreman/tmp
+            - name: {{ template "foreman.fullname" . }}-ssl-certs
+              mountPath: /usr/share/foreman/ssl
+              readOnly: true
+            - name: foreman-config
+              mountPath: /etc/foreman/settings.yaml
+              subPath: settings.yaml
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - '-c'
+                {{- if .Values.apache.enabled }}
+                - curl -k -q https://{{ include "foreman.fullname" . }}:8443/api/ping
+                {{- else }}
+                - curl -q {{ include "foreman.fullname" . }}/api/ping
+                {{- end }}
+            timeoutSeconds: 2
+            periodSeconds: 5
+            failureThreshold: 2
+            initialDelaySeconds: {{ add .Values.foreman.startup_delay 25 }}
+      volumes:
+        - name: foreman-encryption-key
+          secret:
+            secretName: {{ default (printf "%s-encryption-key" (include "foreman.fullname" .)) .Values.encryptionKey.existingSecretName }}
+        - name: foreman-config
+          configMap:
+            name: {{ template "foreman.fullname" . }}-config
+        - name: foreman-dynflow-sidekiq-worker
+          configMap:
+            name: {{ template "foreman.fullname" . }}-dynflow-sidekiq-worker
+        - name: foreman-cache
+          emptyDir:
+            sizeLimit: {{ .Values.foreman.cache.size }}
+        - name: {{ template "foreman.fullname" . }}-ssl-certs
+          secret:
+            secretName: {{ .Values.sslSecret }}
+{{- end }}

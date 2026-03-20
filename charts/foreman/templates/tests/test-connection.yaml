@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "foreman.fullname" . }}-test-connection"
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ["/bin/sh", "-ec"]
+      args:
+        - >
+          {{- if .Values.apache.enabled }}
+          wget -qO- --no-check-certificate https://{{ include "foreman.fullname" . }}:8443/api/ping
+          {{- else }}
+          wget -qO- http://{{ include "foreman.fullname" . }}:3000/api/ping
+          {{- end }}
+  restartPolicy: Never

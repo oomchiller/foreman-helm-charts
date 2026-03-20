@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "foreman.fullname" . }}-config
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+data:
+  database.yaml: |
+    ---
+    production:
+      adapter: {{ .Values.db.adapter }}
+      host: {{ .Values.db.host }}
+      database: {{ .Values.db.database }}
+      username: {{ .Values.db.username }}
+      password: <%= ENV.fetch("DB_PASSWORD") %>
+      pool: {{ .Values.db.pool }}
+
+  settings.yaml: |
+    ---
+    :unattended: {{ .Values.foreman.unattended }}
+    :require_ssl: {{ .Values.foreman.require_ssl }}
+
+    :hsts_enabled: {{ .Values.foreman.hsts_enabled }}
+
+    # SSL-settings
+    :ssl_certificate: /usr/share/foreman/ssl/{{ include "foreman.fullname" . }}.cert.pem
+    :ssl_ca_file: /usr/share/foreman/ssl/ca.pem
+    :ssl_priv_key: /usr/share/foreman/ssl/{{ include "foreman.fullname" . }}.key.pem
+    :server_ca_file: /usr/share/foreman/ssl/ca.pem
+
+    :dynflow:
+      :redis_url: {{ .Values.dynflow.redis_url }}
+
+    :logging:
+      :level: {{ .Values.foreman.logging.level }}
+      :production:
+        :type: {{ .Values.foreman.logging.type }}
+
+    :loggers:
+      :app:
+        :enabled: {{ .Values.foreman.loggers.app }}
+      :ldap:
+        :enabled: {{ .Values.foreman.loggers.ldap }}
+      :permissions:
+        :enabled: {{ .Values.foreman.loggers.permissions }}
+      :sql:
+        :enabled: {{ .Values.foreman.loggers.sql }}
+      :background:
+        :enabled: {{ .Values.foreman.loggers.background }}
+      :dynflow:
+        :enabled: {{ .Values.foreman.loggers.dynflow }}
+      :proxy:
+        :enabled: {{ .Values.foreman.loggers.proxy }}
+      :notifications:
+        :enabled: {{ .Values.foreman.loggers.notifications }}
+
+    :telemetry:
+      :prefix: 'fm_rails'
+      :prometheus:
+        :enabled: {{ .Values.metrics.enabled }}
+      :statsd:
+        :enabled: false
+      :logger:
+        :enabled: false
+
+    {{- if .Values.foreman.redis_urls }}
+    :rails_cache_store:
+      :type: redis
+      :urls:
+        {{- range $url := .Values.foreman.redis_urls }}
+        - {{ $url }}
+        {{- end }}
+      :options:
+        :namespace: {{ include "foreman.fullname" . }}
+    {{- end }}
+
+    :ssl_client_dn_env: HTTP_SSL_CLIENT_S_DN
+    :ssl_client_verify_env: HTTP_SSL_CLIENT_VERIFY
+    :ssl_client_cert_env: HTTP_SSL_CLIENT_CERT
+
+  logging.yaml: |
+    ---
+    :default:
+      :colorize: false
+      :console_inline: false
+      :log_trace: false
+      :level: {{ .Values.foreman.logging.level }}
+      :type: {{ .Values.foreman.logging.type }}
+      :layout: multiline_request_pattern
+      :json_items:
+        - logger
+        - timestamp
+        - level
+        - message
+        - mdc
+        - ndc
+      :pattern: "%d [%.1l|%.3c|%.8X{request}] %m\n"
+      :sys_pattern: "%m\n"
+      :facility: LOG_LOCAL6
+
+    :production:
+      :type: {{ .Values.foreman.logging.type }}
+      # :filename: "production.log"
+
+    :development:
+      :colorize: true
+      :console_inline: true
+      :level: debug
+      :filename: "development.log"
+
+    :test:
+      :level: debug
+      :filename: "test.log"
+      :truncate: true

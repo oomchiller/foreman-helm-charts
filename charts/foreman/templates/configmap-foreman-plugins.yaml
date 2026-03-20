@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "foreman.fullname" . }}-plugins
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+data:
+  default_hostgroup.yaml: |
+    ---
+    :default_hostgroup:
+      :facts_map:
+        {{ .Values.plugins.openstack_hostgroup | quote }}:
+          "hypervisors::kvm::openstack": "true"
+        {{ .Values.plugins.default_hostgroup | quote }}:
+          "hostname": ".*"
+  foreman_column_view.yaml: |
+    ---
+    :column_view:
+  foreman_tasks.yaml: |
+    ---
+    :foreman-tasks:
+      :backup: {}
+      :cleanup:
+        # Cleanup is executed by the housekeeping CronJob in this chart.
+      :loggers:
+        :dynflow:
+          :enabled: {{ .Values.plugins.foreman_tasks.logging.dynflow | quote }}
+        :action:
+          :enabled: {{ .Values.plugins.foreman_tasks.logging.action | quote }}
+      :rules: {}

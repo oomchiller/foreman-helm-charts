@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "foreman-proxy.fullname" . }}
+  labels:
+    {{- include "foreman-proxy.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: 8000
+      protocol: TCP
+      name: {{ .Values.config.scheme }}
+  selector:
+    {{- include "foreman-proxy.selectorLabels" . | nindent 4 }}

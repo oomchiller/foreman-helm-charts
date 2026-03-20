@@ -1,0 +1,73 @@
+{{- if .Values.apache.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "foreman.fullname" . }}-apache-vhost
+  labels:
+    {{- include "foreman.frontend.labels" . | nindent 4 }}
+data:
+  vhost-foreman.conf: |
+    <VirtualHost *:8443>
+
+      ServerName {{ include "foreman.fullname" . }}
+      ServerAlias {{ join " " .Values.foreman.fqdn }}
+
+      ## Logging
+      ErrorLog /dev/stderr
+      TransferLog /dev/stdout
+      ServerSignature Off
+
+      ## Request header rules
+      ## as per http://httpd.apache.org/docs/2.4/mod/mod_headers.html#requestheader
+      RequestHeader set X-FORWARDED-PROTO "https"
+      RequestHeader set SSL-CLIENT-S-DN "%{SSL_CLIENT_S_DN}s"
+      RequestHeader set SSL-CLIENT-CERT "%{SSL_CLIENT_CERT}s"
+      RequestHeader set SSL-CLIENT-VERIFY "%{SSL_CLIENT_VERIFY}s"
+      RequestHeader unset REMOTE-USER
+      RequestHeader unset REMOTE_USER
+      RequestHeader unset REMOTE-USER-EMAIL
+      RequestHeader unset REMOTE-USER_EMAIL
+      RequestHeader unset REMOTE_USER-EMAIL
+      RequestHeader unset REMOTE_USER_EMAIL
+      RequestHeader unset REMOTE-USER-FIRSTNAME
+      RequestHeader unset REMOTE-USER_FIRSTNAME
+      RequestHeader unset REMOTE_USER-FIRSTNAME
+      RequestHeader unset REMOTE_USER_FIRSTNAME
+      RequestHeader unset REMOTE-USER-LASTNAME
+      RequestHeader unset REMOTE-USER_LASTNAME
+      RequestHeader unset REMOTE_USER-LASTNAME
+      RequestHeader unset REMOTE_USER_LASTNAME
+      RequestHeader unset REMOTE-USER-GROUPS
+      RequestHeader unset REMOTE-USER_GROUPS
+      RequestHeader unset REMOTE_USER-GROUPS
+      RequestHeader unset REMOTE_USER_GROUPS
+
+      # SSL Proxy directives
+      SSLProxyEngine On
+
+      ## Proxy rules
+      ProxyRequests Off
+      ProxyPreserveHost On
+      ProxyAddHeaders On
+
+      ProxyPass / http://{{ include "foreman.fullname" . }}-http:3000/ retry=0 timeout=900 upgrade=websocket
+      ProxyPassReverse / http://{{ include "foreman.fullname" . }}-http:3000/
+
+      ## SSL directives
+      SSLEngine on
+      SSLCertificateFile      "/ssl/{{ include "foreman.fullname" . }}.cert.pem"
+      SSLCertificateKeyFile   "/ssl/{{ include "foreman.fullname" . }}.key.pem"
+      SSLCertificateChainFile "/ssl/ca.pem"
+      SSLVerifyClient         optional
+      SSLVerifyDepth          3
+      SSLCACertificateFile    "/ssl/ca.pem"
+      # SSLCARevocationFile     "/etc/puppetlabs/puppet/ssl/crl.pem"
+      # SSLCARevocationCheck    chain
+      SSLOptions +StdEnvVars +ExportCertData
+
+      AddDefaultCharset UTF-8
+    </VirtualHost>
+
+  global-servername.conf: |
+    ServerName {{ include "foreman.fullname" . }}
+{{- end -}}

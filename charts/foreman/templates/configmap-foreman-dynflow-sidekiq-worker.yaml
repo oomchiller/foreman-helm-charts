@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "foreman.fullname" . }}-dynflow-sidekiq-worker
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+data:
+  worker.yml: |
+    ---
+    :concurrency: {{ .Values.dynflow.worker.concurrency }}
+    :queues:
+    - - default
+      - 1
+    - - remote_execution
+      - 1

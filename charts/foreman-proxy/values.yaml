@@ -1,0 +1,98 @@
+# Default values for foreman-proxy.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  name: foreman-proxy
+  pullPolicy: IfNotPresent
+  repository: registry.example.com/foreman
+  tag: "3.18"
+
+PodSecurityContext:
+  runAsNonRoot: true
+
+SecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+podAnnotations: {}
+
+extraEnv: {}
+
+secrets:
+  ca_cert: foreman-proxy-ca-cert
+  ssl_certs: foreman-proxy-ssl-certs
+  ssh_auth: foreman-proxy-ssh
+
+config:
+  cache:
+    size: "50Mi"
+  scheme: https
+  settings: {}
+  plugins:
+    ansible:
+      enabled: false
+      env: {}
+      settings: {}
+      gitsync:
+        ansible_git_sync_secret: foreman-proxy-git-sync-ansible-roles
+        image: registry.k8s.io/git-sync/git-sync:v4.4.0
+        roles_repo_ref: "main"
+        roles_repo: ""
+        volume_size: 100Mi
+    dynflow:
+      enabled: true
+    facts:
+      enabled: false
+    puppet:
+      enabled: true
+      settings: {}
+    puppetca:
+      enabled: true
+      settings: {}
+      http_api:
+        settings: {}
+      hostname_whitelisting:
+        settings:
+          :autosignfile: "/etc/puppetlabs/puppet/autosign.conf"
+    remote_execution_ssh:
+      enabled: false
+      settings: {}
+      volume_size: 5Mi
+    shellhooks:
+      enabled: false
+      volume_size: 100Mi
+      secret: "foreman-hooks-env"
+      gitsync:
+        resources: {}
+        image: registry.k8s.io/git-sync/git-sync:v4.4.0
+        scripts_repo: ""
+        scripts_repo_ref: main
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  fqdn: ""
+  enabled: false
+  className: ""
+  annotations: {}
+  tls: []
+
+resources:
+  {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi

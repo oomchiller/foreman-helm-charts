@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "foreman.fullname" . }}-dynflow-sidekiq-orchestrator
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+data:
+  orchestrator.yml: |
+    ---
+    :concurrency: 1
+    :queues:
+      - dynflow_orchestrator

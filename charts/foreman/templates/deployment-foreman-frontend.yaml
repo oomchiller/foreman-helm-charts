@@ -1,0 +1,64 @@
+{{- if .Values.apache.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "foreman.fullname" . }}-apache
+  labels:
+    {{- include "foreman.frontend.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "foreman.frontend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "foreman.frontend.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/vhost-foreman: {{ include (print $.Template.BasePath "/configmap-foreman-apache-vhost.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: apache
+          image: "{{ .Values.apache.image.repository }}/{{ .Values.apache.image.name }}:{{ .Values.apache.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.apache.image.pullPolicy }}
+          env:
+            {{- range $name, $value := .Values.apache.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value }}
+            {{- end }}
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          # livenessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          # readinessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 500m
+          volumeMounts:
+            - name: {{ template "foreman.fullname" . }}-apache-vhost
+              mountPath: /usr/local/apache2/conf/extra/
+              readOnly: true
+            - name: {{ template "foreman.fullname" . }}-ssl-certs
+              mountPath: /ssl
+              readOnly: true
+      volumes:
+        - name: {{ template "foreman.fullname" . }}-apache-vhost
+          configMap:
+            name: {{ template "foreman.fullname" . }}-apache-vhost
+        - name: {{ template "foreman.fullname" . }}-ssl-certs
+          secret:
+            secretName: {{ .Values.sslSecret }}
+{{- end -}}

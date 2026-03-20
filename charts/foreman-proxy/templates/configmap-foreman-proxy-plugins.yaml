@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "foreman-proxy.fullname" . }}-plugins
+  labels:
+    {{- include "foreman-proxy.labels" . | nindent 4 }}
+data:
+  ansible.yml: |
+    ---
+    {{- if .Values.config.plugins.ansible.enabled }}
+    :enabled: {{ .Values.config.scheme }}
+    {{- else }}
+    :enabled: {{ .Values.config.plugins.ansible.enabled }}
+    {{- end }}
+
+    :ansible_environment_file: "/etc/foreman-proxy/settings.d/ansible.env"
+    :working_dir: /tmp
+    :ansible_dir: /tmp
+
+    {{- with .Values.config.plugins.ansible.settings }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+
+  ansible.env: |
+    {{- range $k, $v := .Values.config.plugins.ansible.env }}
+    export {{ $k -}}={{ quote $v }}
+    {{- end }}
+
+  facts.yml: |
+    ---
+    {{- if .Values.config.plugins.facts.enabled }}
+    :enabled: {{ .Values.config.scheme }}
+    {{- else }}
+    :enabled: {{ .Values.config.plugins.facts.enabled }}
+    {{- end }}
+
+  dynflow.yml: |
+    ---
+    {{- if .Values.config.plugins.dynflow.enabled }}
+    :enabled: {{ .Values.config.scheme }}
+    {{- else }}
+    :enabled: {{ .Values.config.plugins.dynflow.enabled }}
+    {{- end }}
+    :database:
+
+  puppet.yml: |
+    ---
+    {{- if .Values.config.plugins.puppet.enabled }}
+    :enabled: {{ .Values.config.scheme }}
+    {{- else }}
+    :enabled: {{ .Values.config.plugins.puppet.enabled }}
+    {{- end }}
+
+  puppet_proxy_puppet_api.yml: |
+    ---
+    {{- with .Values.config.plugins.puppet.settings }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    :puppet_ssl_ca: /etc/foreman-proxy/ssl/ca.pem
+    :puppet_ssl_cert: /etc/foreman-proxy/ssl/{{ include "foreman-proxy.fullname" . }}.cert.pem
+    :puppet_ssl_key: /etc/foreman-proxy/ssl/{{ include "foreman-proxy.fullname" . }}.key.pem
+
+  puppetca.yml: |
+    ---
+    {{- if .Values.config.plugins.puppetca.enabled }}
+    :enabled: {{ .Values.config.scheme }}
+    {{- else }}
+    :enabled: {{ .Values.config.plugins.puppetca.enabled }}
+    {{- end }}
+    {{- with .Values.config.plugins.puppetca.settings }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+
+  puppetca_http_api.yml: |
+    ---
+    :puppet_ssl_ca: /etc/foreman-proxy/ssl/ca.pem
+    :puppet_ssl_cert: /etc/foreman-proxy/ssl/puppet.cert.pem
+    :puppet_ssl_key: /etc/foreman-proxy/ssl/puppet.key.pem
+    {{- with .Values.config.plugins.puppetca.http_api.settings }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+
+  puppetca_hostname_whitelisting.yml: |
+    ---
+    {{- with .Values.config.plugins.puppetca.hostname_whitelisting.settings }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+
+  remote_execution_ssh.yml: |
+    ---
+    {{- if .Values.config.plugins.remote_execution_ssh.enabled }}
+    :enabled: {{ .Values.config.scheme }}
+    {{- else }}
+    :enabled: {{ .Values.config.plugins.remote_execution_ssh.enabled }}
+    {{- end }}
+    :cockpit_integration: false
+    :local_working_dir: /tmp
+    :remote_working_dir: /tmp
+    :socket_working_dir: /tmp
+    :ssh_log_level: info
+
+  shellhooks.yml: |
+    ---
+    {{- if .Values.config.plugins.shellhooks.enabled }}
+    :enabled: {{ .Values.config.scheme }}
+    {{- else }}
+    :enabled: {{ .Values.config.plugins.shellhooks.enabled }}
+    {{- end }}
+    :directory: "/var/lib/foreman-proxy/shellhooks"

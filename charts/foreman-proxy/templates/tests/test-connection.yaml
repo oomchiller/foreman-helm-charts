@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "foreman-proxy.fullname" . }}-test-connection"
+  labels:
+    {{- include "foreman-proxy.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ["/bin/sh", "-ec"]
+      args:
+        - >
+          {{- if eq .Values.config.scheme "https" }}
+          wget -qO- --no-check-certificate https://{{ include "foreman-proxy.fullname" . }}:{{ .Values.service.port }}/version
+          {{- else }}
+          wget -qO- http://{{ include "foreman-proxy.fullname" . }}:{{ .Values.service.port }}/version
+          {{- end }}
+  restartPolicy: Never

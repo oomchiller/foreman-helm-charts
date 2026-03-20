@@ -1,0 +1,56 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "foreman.fullname" . }}
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+  {{- if kindIs "slice" .Values.foreman.fqdn }}
+  {{- range .Values.foreman.fqdn }}
+  {{- if . }}
+    - host: {{ quote . }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "foreman.fullname" $ }}
+                port:
+                  number: 8443
+  {{- end }}
+  {{- end }}
+  {{- else }}
+  {{- if .Values.foreman.fqdn }}
+    - host: {{ quote .Values.foreman.fqdn }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                {{- if .Values.apache.enabled }}
+                name: {{ include "foreman.fullname" $ }}
+                port:
+                  number: 8443
+                {{- else }}
+                name: {{ include "foreman.fullname" $ }}
+                port:
+                  number: 3000
+                {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

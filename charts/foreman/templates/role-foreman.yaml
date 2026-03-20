@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "foreman.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+rules:
+  - verbs:
+      - get
+      - patch
+    apiGroups:
+      - apps
+    resources:
+      - deployments
+    resourceNames:
+      - {{ include "foreman.fullname" . }}-dynflow-sidekiq-orchestrator
+      - {{ include "foreman.fullname" . }}-dynflow-sidekiq-worker

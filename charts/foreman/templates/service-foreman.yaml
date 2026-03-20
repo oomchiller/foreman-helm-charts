@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "foreman.fullname" . }}
+  labels:
+    {{- if .Values.apache.enabled }}
+    {{- include "foreman.frontend.labels" . | nindent 4 }}
+    {{- else }}
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+    {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    {{- if .Values.apache.enabled }}
+    - port: 8443
+      targetPort: 8443
+      protocol: TCP
+      name: https
+    {{- else }}
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+    {{- end }}
+  selector:
+    {{- if .Values.apache.enabled }}
+    {{- include "foreman.frontend.selectorLabels" . | nindent 4 }}
+    {{- else }}
+    {{- include "foreman.foreman.selectorLabels" . | nindent 4 }}
+    {{- end }}

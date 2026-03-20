@@ -1,0 +1,98 @@
+{{- if .Values.housekeeping.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "foreman.fullname" . }}-housekeeping
+  labels:
+    {{- include "foreman.foreman.labels" . | nindent 4 }}
+spec:
+  concurrencyPolicy: Forbid
+  suspend: false
+  failedJobsHistoryLimit: {{ .Values.housekeeping.failedJobsHistoryLimit }}
+  schedule: "{{ .Values.housekeeping.schedule }}"
+  successfulJobsHistoryLimit: {{ .Values.housekeeping.successfulJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "foreman.foreman.labels" . | nindent 8 }}
+    spec:
+      template:
+        spec:
+          securityContext:
+            {{- toYaml .Values.PodSecurityContext | nindent 12 }}       
+          restartPolicy: OnFailure
+          containers:
+            - name: {{ .Chart.Name }}-clean-expired
+              securityContext:
+                {{- toYaml .Values.SecurityContext | nindent 16 }} 
+              args:
+                - "bundle"
+                - "exec"
+                - "bin/rake"
+                - "-m"
+                - "reports:expire"
+                - "days={{ .Values.housekeeping.days_to_retain }}"
+                - "audits:expire"
+                - "days={{ .Values.housekeeping.days_to_retain }}"
+                - "facts:clean"
+              {{- if .Values.housekeeping.foreman_tasks.enabled }}
+                - "foreman_tasks:cleanup"  
+                {{- if and (hasKey .Values.housekeeping.foreman_tasks "dry_run") (eq .Values.housekeeping.foreman_tasks.dry_run true ) }}
+                - "NOOP=true"
+                {{- end }}
+                - "AFTER={{ .Values.housekeeping.days_to_retain }}d"
+                - 'TASK_SEARCH=""'
+                - "TASK_BACKUP=false"
+                - 'STATES="stopped"'
+              {{- end }}
+              image: "{{ .Values.image.repository }}/{{ .Values.image.name }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              env:
+                - name: RAILS_LOG_TO_STDOUT
+                  value: "true"
+                - name: RAILS_ENV
+                  value: "production"
+                - name: DB_PASSWORD
+                {{- if .Values.db.existingSecretName }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.db.existingSecretName }}
+                      {{- if .Values.db.existingSecretKey }}
+                      key: {{ .Values.db.existingSecretKey }}
+                      {{- else }}
+                      key: password
+                      {{- end }}
+                {{- else }}
+                  value: {{ .Values.db.password }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.housekeeping.resources | nindent 16 }}
+              volumeMounts:
+                - name: foreman-config
+                  mountPath: /etc/foreman/settings.yaml
+                  subPath: settings.yaml
+                  # readOnly: true
+                - name: foreman-config
+                  mountPath: /etc/foreman/database.yml
+                  subPath: database.yaml
+                  # readOnly: true
+                - name: foreman-config
+                  mountPath: /etc/foreman/logging.yaml
+                  subPath: logging.yaml
+                  # readOnly: true
+                - name: foreman-plugins
+                  mountPath: /etc/foreman/plugins
+                  # readOnly: true
+                - name: foreman-cache
+                  mountPath: /usr/share/foreman/tmp
+          volumes:
+            - name: foreman-config
+              configMap:
+                name: {{ template "foreman.fullname" . }}-config
+            - name: foreman-plugins
+              configMap:
+                name: {{ template "foreman.fullname" . }}-plugins
+            - name: foreman-cache
+              emptyDir:
+                sizeLimit: {{ .Values.foreman.cache.size }}     
+{{- end }}
